@@ -8,8 +8,8 @@ COPY . .
 RUN go build -o /scraper ./cmd/scraper
 
 # Final image
-FROM alpine:3.18
-RUN apk add --no-cache ca-certificates
+FROM alpine:3.18 
+RUN apk add --no-cache ca-certificates 
 WORKDIR /root/
 COPY --from=build /scraper /root/scraper
 # opcional: archivo .env será montado por docker-compose

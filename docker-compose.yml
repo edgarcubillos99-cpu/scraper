@@ -1,6 +1,6 @@
 version: "3.8"
 services:
-  mysql:
+  mysql: # Servicio de base de datos MySQL
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
@@ -12,11 +12,11 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      retries: 5
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"] # Comando para verificar el estado de MySQL
+      interval: 10s # Verifica cada 10 segundos
+      retries: 5  # Espera a que MySQL esté listo antes de iniciar la app
 
-  app:
+  app: # Servicio de la aplicación Go
     build: .
     depends_on:
       mysql:
@@ -27,13 +27,13 @@ services:
       - DB_USER=app
       - DB_PASSWORD=apppass
       - DB_NAME=appdb
-      - TARGET_URL=https://example.com/page-with-table 
-      - TABLE_SELECTOR=table#data 
-      - ROW_SELECTOR=tr
+      - TARGET_URL=https://example.com/page-with-table # cambia por la URL requerida
+      - TABLE_SELECTOR=table#data # cambia por el selector CSS requerido
+      - ROW_SELECTOR=tr 
     # monta .env si quieres
     # volumes:
     #   - ./:/app
-    restart: "no"
+    restart: "no" # Cambia a "always" para producción
 
-volumes:
-  db_data:
+volumes: 
+  db_data: 

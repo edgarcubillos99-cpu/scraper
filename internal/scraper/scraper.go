@@ -53,7 +53,6 @@ func RunScrape(ctx context.Context, db *gorm.DB, opts ScrapeOptions) error {
 	c.OnHTML(opts.TableSelector, func(e *colly.HTMLElement) {
 		rows := e.DOM.Find(opts.RowSelector)
 		rows.Each(func(i int, s *goquery.Selection) {
-			// Nota: colly.HTMLElement expone e.DOM que es *goquery.Selection;
 			// aquí puedes procesar cada fila usando s (tipo *goquery.Selection)
 		})
 	})
@@ -84,6 +83,7 @@ func RunScrape(ctx context.Context, db *gorm.DB, opts ScrapeOptions) error {
 			Col3: col3,
 		}
 
+		// enviar registro al canal
 		select {
 		case recordsCh <- rec:
 		case <-ctx.Done():
