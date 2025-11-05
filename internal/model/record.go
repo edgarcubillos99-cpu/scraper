@@ -6,7 +6,10 @@ import "gorm.io/gorm"
 // Ajusta campos de columnas según la tabla real.
 type Record struct {
 	gorm.Model
-	Col1 string `gorm:"type:varchar(255);index"`
-	Col2 string `gorm:"type:varchar(255)"`
-	Col3 string `gorm:"type:text"`
+	ClientID string `gorm:"column:client_id"`
+	Client   string `gorm:"column:client"`
+	Date     string `gorm:"column:date"`
+	Type     string `gorm:"column:type"`
+	Amount   string `gorm:"column:amount"`
+	Agent    string `gorm:"column:agent"`
 }

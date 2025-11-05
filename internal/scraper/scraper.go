@@ -2,7 +2,9 @@ package scraper
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -23,10 +25,16 @@ type ScrapeOptions struct {
 // RunScrape ejecuta el scraping y envía registros al DB a través de GORM.
 // Inserta concurrentemente mediante un worker pool simple.
 func RunScrape(ctx context.Context, db *gorm.DB, opts ScrapeOptions) error {
+
 	c := colly.NewCollector(
-		colly.UserAgent("go-colly-scraper/1.0"),
+		colly.UserAgent("go-colly-scraper/1.0"), //
 		colly.MaxDepth(2),
 	)
+
+	// Ignorar verificación TLS
+	c.WithTransport(&http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	})
 
 	// canal para enviar registros a workers
 	recordsCh := make(chan model.Record, 200)
@@ -37,7 +45,7 @@ func RunScrape(ctx context.Context, db *gorm.DB, opts ScrapeOptions) error {
 	workers := 5
 	for i := 0; i < workers; i++ {
 		go func(id int) {
-			for r := range recordsCh {
+			for r := range recordsCh { // recibe registros del canal
 				if err := db.Create(&r).Error; err != nil {
 					log.Printf("[worker %d] DB insert error: %v", id, err)
 					select {
@@ -50,42 +58,55 @@ func RunScrape(ctx context.Context, db *gorm.DB, opts ScrapeOptions) error {
 	}
 
 	// seleccionar filas dentro de la tabla objetivo
-	c.OnHTML(opts.TableSelector, func(e *colly.HTMLElement) {
-		rows := e.DOM.Find(opts.RowSelector)
-		rows.Each(func(i int, s *goquery.Selection) {
+	c.OnHTML(opts.TableSelector, func(e *colly.HTMLElement) { // e *colly.HTMLElement representa la tabla
+		rows := e.DOM.Find(opts.RowSelector)          // e.DOM.Find busca dentro de la tabla
+		rows.Each(func(i int, s *goquery.Selection) { // s *goquery.Selection representa cada fila y rows.Each itera sobre ellas
 			// aquí puedes procesar cada fila usando s (tipo *goquery.Selection)
 		})
 	})
 
-	// simpler approach: parse rows using child callbacks:
 	// buscamos cada fila dentro del selector combinado
 	c.OnHTML(opts.TableSelector+" "+opts.RowSelector, func(e *colly.HTMLElement) {
 		// si la tabla tiene header, saltar la primera fila
-		if opts.StartAtHeader && strings.TrimSpace(e.DOM.Parent().Find("tr").First().Text()) == e.Text {
+		if opts.StartAtHeader && strings.TrimSpace(e.DOM.Parent().Find("tr").First().Text()) == e.Text { //e.DOM.Parent() es la tabla, Find("tr").First().Text() es el texto de la primera fila
 			// si coincide con primera fila - heurística: mejor controlar con index en otra forma
 		}
 
 		// extraer celdas <td>
 		cells := e.DOM.Find("td")
-		if cells.Length() == 0 {
+		if cells.Length() == 0 { // cells.Length() == 0 indica que no hay celdas,
 			// puede ser header <th>
 			return
 		}
 
-		// extrae textos de las primeras 3 celdas (ajusta según tabla)
-		col1 := strings.TrimSpace(cells.Eq(0).Text())
-		col2 := strings.TrimSpace(cells.Eq(1).Text())
-		col3 := strings.TrimSpace(cells.Eq(2).Text())
+		// extrae textos de las celdas (ajusta según tabla)
+		col1 := strings.TrimSpace(cells.Eq(1).Text())
+		col2 := strings.TrimSpace(cells.Eq(2).Text())
+		col3 := strings.TrimSpace(cells.Eq(3).Text())
+		col4 := strings.TrimSpace(cells.Eq(6).Text())
+		col5 := strings.TrimSpace(cells.Eq(9).Text())
+		col6 := strings.TrimSpace(cells.Eq(12).Text())
 
-		rec := model.Record{
-			Col1: col1,
-			Col2: col2,
-			Col3: col3,
+		if col6 == "" {
+			return // saltar si columna clave está vacía
 		}
+
+		rec := model.Record{ // crea el registro
+			ClientID: col1,
+			Client:   col2,
+			Date:     col3,
+			Type:     col4,
+			Amount:   col5,
+			Agent:    col6,
+		}
+
+		// Antes de enviar al canal, imprime los valores
+		log.Printf("Fila: ClientID=%s, Client=%s, Date=%s, Type=%s, Amount=%s, Agent=%s",
+			col1, col2, col3, col4, col5, col6)
 
 		// enviar registro al canal
 		select {
-		case recordsCh <- rec:
+		case recordsCh <- rec: // envía el registro al canal
 		case <-ctx.Done():
 			log.Println("context cancelled while sending record")
 		}

@@ -2,15 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
 
-	"github.com/eddgaroso/go-colly-mysql/internal/db"
-	"github.com/eddgaroso/go-colly-mysql/internal/scraper"
-	"github.com/joho/godotenv"
+	"github.com/eddgaroso/go-colly-mysql/internal/db"      // módulo de conexión a DB
+	"github.com/eddgaroso/go-colly-mysql/internal/scraper" // módulo de scraper
+	"github.com/joho/godotenv"                             // para cargar variables de entorno
 )
 
+// principal función del scraper
 func main() {
 	// cargar .env si existe
 	_ = godotenv.Load() // godotenv no falla si no existe el archivo
@@ -26,11 +28,23 @@ func main() {
 	defer cancel()
 
 	// opciones de scraping
+
+	// cargar zona horaria desde variable de entorno
+	loc, _ := time.LoadLocation(os.Getenv("America/Puerto_Rico"))
+
+	// definir rango de fechas del día actual en la zona horaria especificada
+	startOfDay := time.Now().In(loc).Truncate(24 * time.Hour)
+	endOfDay := startOfDay.Add(24*time.Hour - time.Second)
+
+	// construir URL con timestamps
+	urlTemplate := os.Getenv("TARGET_URL") // pon la URL en yml
+	url := fmt.Sprintf(urlTemplate, startOfDay.Unix(), endOfDay.Unix())
+
 	opts := scraper.ScrapeOptions{
-		URL:           os.Getenv("TARGET_URL"),     // pon la URL en .env
+		URL:           url,                         // URL con timestamps
 		TableSelector: os.Getenv("TABLE_SELECTOR"), // ejemplo: "table#data"
 		RowSelector:   os.Getenv("ROW_SELECTOR"),   // ejemplo: "tr"
-		StartAtHeader: true,
+		StartAtHeader: true,                        // ajusta según la tabla
 	}
 
 	// ejecutar el scraping

@@ -19,14 +19,16 @@ func Connect() (*gorm.DB, error) {
 	port := os.Getenv("DB_PORT")
 	name := os.Getenv("DB_NAME")
 
+	// construir DSN (Data Source Name)
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", user, pass, host, port, name)
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{}) // abrir conexión
 	if err != nil {
 		return nil, err
 	}
 
 	// Auto-migrate (crea/actualiza tabla)
-	if err := db.AutoMigrate(&model.Record{}); err != nil {
+	// Desactivar en producción para evitar cambios no deseados en el esquema
+	if err := db.AutoMigrate(&model.Record{}); err != nil { // migrar modelo Record
 		log.Println("AutoMigrate error:", err)
 		return nil, err
 	}
