@@ -30,9 +30,9 @@ services:
       - TARGET_URL=https://billing.osnetpr.com/admin/reports/report_billings_detail.php?type=&begin=%d&end=%d&type=
       - TABLE_SELECTOR=table.table-body-modern
       - ROW_SELECTOR=tr 
-      - BILLING_USER=garispe
-      - BILLING_PASS=iveth2020
-    # monta .env si quieres
+    env_file:
+      - .env
+
     # volumes:
     #   - ./:/app
     restart: "no" # Cambia a "always" para producción

@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Opciones de scraping
 type ScrapeOptions struct {
 	URL           string
 	TableSelector string
@@ -21,23 +22,12 @@ type ScrapeOptions struct {
 func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts ScrapeOptions) error {
 
 	// ---------------------------
-	// ✅ 1. DEBUG: mostrar HTML recibido
-	// ---------------------------
-	c.OnResponse(func(r *colly.Response) {
-		body := string(r.Body)
-		if len(body) > 400 {
-			body = body[:400]
-		}
-		log.Println("📄 HTML recibido (primeros 400 chars):")
-		log.Println(body)
-	})
-
-	// ---------------------------
-	// ✅ 2. Worker pool a BD
+	// Worker pool a BD
 	// ---------------------------
 	recordsCh := make(chan model.Record, 200)
 	errCh := make(chan error, 5)
 
+	// Lanzar workers para insertar a BD
 	for i := 0; i < 5; i++ {
 		go func(id int) {
 			for r := range recordsCh {
@@ -50,14 +40,14 @@ func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts Scrape
 	}
 
 	// ---------------------------
-	// ✅ 3. Detectar tabla
+	// Detectar tabla
 	// ---------------------------
 	c.OnHTML(opts.TableSelector, func(e *colly.HTMLElement) {
 		log.Println("✅ Tabla encontrada:", opts.TableSelector)
 	})
 
 	// ---------------------------
-	// ✅ 4. Procesar filas
+	// Procesar filas
 	// ---------------------------
 	c.OnHTML(opts.TableSelector+" "+opts.RowSelector, func(e *colly.HTMLElement) {
 
@@ -75,11 +65,12 @@ func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts Scrape
 		col5 := strings.TrimSpace(cells.Eq(9).Text())  // Amount
 		col6 := strings.TrimSpace(cells.Eq(12).Text()) // Agent
 
-		if col1 == "" && col2 == "" {
+		// Omitir filas sin datos en columna clave
+		if col6 == "" {
 			return
 		}
 
-		rec := model.Record{
+		rec := model.Record{ // Ajustar según modelo
 			ClientID: col1,
 			Client:   col2,
 			Date:     col3,
@@ -90,6 +81,7 @@ func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts Scrape
 
 		log.Printf("✅ Registro: %+v", rec)
 
+		// Enviar a canal de workers la inserción
 		select {
 		case recordsCh <- rec:
 		case <-ctx.Done():
@@ -98,14 +90,14 @@ func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts Scrape
 	})
 
 	// ---------------------------
-	// ✅ 5. Manejo de errores HTTP
+	// Manejo de errores HTTP
 	// ---------------------------
 	c.OnError(func(r *colly.Response, err error) {
 		log.Printf("❌ Error HTTP %s: %v", r.Request.URL, err)
 	})
 
 	// ---------------------------
-	// ✅ 6. Visitar reporte
+	// Visitar reporte
 	// ---------------------------
 	log.Println("🌍 Visitando URL:", opts.URL)
 
@@ -117,7 +109,7 @@ func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts Scrape
 	c.Wait()
 
 	// ---------------------------
-	// ✅ 7. Cerrar workers
+	// Cerrar workers
 	// ---------------------------
 	close(recordsCh)
 	time.Sleep(1 * time.Second)
