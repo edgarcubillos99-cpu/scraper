@@ -1,0 +1,2 @@
+driver: mysql
+dsn: app:apppass@tcp(mysql:3306)/appdb?parseTime=true

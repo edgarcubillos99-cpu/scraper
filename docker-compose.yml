@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   mysql: # Servicio de base de datos MySQL
     image: mysql:8.0
@@ -11,9 +13,9 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"] # Comando para verificar el estado de MySQL
-      interval: 10s # Verifica cada 10 segundos
-      retries: 5  # Espera a que MySQL esté listo antes de iniciar la app
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
 
   app: # Servicio de la aplicación Go
     build: .
@@ -29,13 +31,14 @@ services:
       - TIMEZONE=America/Puerto_Rico
       - TARGET_URL=https://billing.osnetpr.com/admin/reports/report_billings_detail.php?type=&begin=%d&end=%d&type=
       - TABLE_SELECTOR=table.table-body-modern
-      - ROW_SELECTOR=tr 
+      - ROW_SELECTOR=tr
     env_file:
       - .env
+    volumes:
+      - ./migrations:/migrations
+      - ./goose-db.yaml:/goose-db.yaml
+    entrypoint: ["/root/entrypoint.sh"]
+    restart: "no"
 
-    # volumes:
-    #   - ./:/app
-    restart: "no" # Cambia a "always" para producción
-
-volumes: 
-  db_data: 
+volumes:
+  db_data:

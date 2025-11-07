@@ -2,10 +2,8 @@ package db
 
 import (
 	"fmt"
-	"log"
 	"os"
 
-	"github.com/eddgaroso/go-colly-mysql/internal/model"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -28,10 +26,9 @@ func Connect() (*gorm.DB, error) {
 
 	// Auto-migrate (crea/actualiza tabla)
 	// Desactivar en producción para evitar cambios no deseados en el esquema
-	if err := db.AutoMigrate(&model.Record{}); err != nil { // migrar modelo Record
-		log.Println("AutoMigrate error:", err)
-		return nil, err
-	}
 
+	// if err := db.AutoMigrate(&model.Record{}); err != nil {
+	//     return nil, err
+	// }
 	return db, nil
 }
