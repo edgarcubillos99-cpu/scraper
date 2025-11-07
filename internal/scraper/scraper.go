@@ -2,96 +2,84 @@ package scraper
 
 import (
 	"context"
-	"crypto/tls"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/eddgaroso/go-colly-mysql/internal/model"
 	"github.com/gocolly/colly/v2"
 	"gorm.io/gorm"
 )
 
-// ScrapeOptions guarda parámetros configurables
 type ScrapeOptions struct {
 	URL           string
-	TableSelector string // ejemplo: "table#data"
-	RowSelector   string // ejemplo: "tr"
-	StartAtHeader bool   // si la tabla tiene header
+	TableSelector string
+	RowSelector   string
+	StartAtHeader bool
 }
 
-// RunScrape ejecuta el scraping y envía registros al DB a través de GORM.
-// Inserta concurrentemente mediante un worker pool simple.
-func RunScrape(ctx context.Context, db *gorm.DB, opts ScrapeOptions) error {
+func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts ScrapeOptions) error {
 
-	c := colly.NewCollector(
-		colly.UserAgent("go-colly-scraper/1.0"), //
-		colly.MaxDepth(2),
-	)
-
-	// Ignorar verificación TLS
-	c.WithTransport(&http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	// ---------------------------
+	// ✅ 1. DEBUG: mostrar HTML recibido
+	// ---------------------------
+	c.OnResponse(func(r *colly.Response) {
+		body := string(r.Body)
+		if len(body) > 400 {
+			body = body[:400]
+		}
+		log.Println("📄 HTML recibido (primeros 400 chars):")
+		log.Println(body)
 	})
 
-	// canal para enviar registros a workers
+	// ---------------------------
+	// ✅ 2. Worker pool a BD
+	// ---------------------------
 	recordsCh := make(chan model.Record, 200)
-	// canal para errores de inserción
-	errCh := make(chan error, 10)
+	errCh := make(chan error, 5)
 
-	// worker pool de inserción
-	workers := 5
-	for i := 0; i < workers; i++ {
+	for i := 0; i < 5; i++ {
 		go func(id int) {
-			for r := range recordsCh { // recibe registros del canal
+			for r := range recordsCh {
 				if err := db.Create(&r).Error; err != nil {
 					log.Printf("[worker %d] DB insert error: %v", id, err)
-					select {
-					case errCh <- err:
-					default:
-					}
+					errCh <- err
 				}
 			}
 		}(i)
 	}
 
-	// seleccionar filas dentro de la tabla objetivo
-	c.OnHTML(opts.TableSelector, func(e *colly.HTMLElement) { // e *colly.HTMLElement representa la tabla
-		rows := e.DOM.Find(opts.RowSelector)          // e.DOM.Find busca dentro de la tabla
-		rows.Each(func(i int, s *goquery.Selection) { // s *goquery.Selection representa cada fila y rows.Each itera sobre ellas
-			// aquí puedes procesar cada fila usando s (tipo *goquery.Selection)
-		})
+	// ---------------------------
+	// ✅ 3. Detectar tabla
+	// ---------------------------
+	c.OnHTML(opts.TableSelector, func(e *colly.HTMLElement) {
+		log.Println("✅ Tabla encontrada:", opts.TableSelector)
 	})
 
-	// buscamos cada fila dentro del selector combinado
+	// ---------------------------
+	// ✅ 4. Procesar filas
+	// ---------------------------
 	c.OnHTML(opts.TableSelector+" "+opts.RowSelector, func(e *colly.HTMLElement) {
-		// si la tabla tiene header, saltar la primera fila
-		if opts.StartAtHeader && strings.TrimSpace(e.DOM.Parent().Find("tr").First().Text()) == e.Text { //e.DOM.Parent() es la tabla, Find("tr").First().Text() es el texto de la primera fila
-			// si coincide con primera fila - heurística: mejor controlar con index en otra forma
-		}
 
-		// extraer celdas <td>
 		cells := e.DOM.Find("td")
-		if cells.Length() == 0 { // cells.Length() == 0 indica que no hay celdas,
-			// puede ser header <th>
+
+		if cells.Length() == 0 {
 			return
 		}
 
-		// extrae textos de las celdas (ajusta según tabla)
-		col1 := strings.TrimSpace(cells.Eq(1).Text())
-		col2 := strings.TrimSpace(cells.Eq(2).Text())
-		col3 := strings.TrimSpace(cells.Eq(3).Text())
-		col4 := strings.TrimSpace(cells.Eq(6).Text())
-		col5 := strings.TrimSpace(cells.Eq(9).Text())
-		col6 := strings.TrimSpace(cells.Eq(12).Text())
+		// Ajustar según la tabla real
+		col1 := strings.TrimSpace(cells.Eq(1).Text())  // ClientID
+		col2 := strings.TrimSpace(cells.Eq(2).Text())  // Client
+		col3 := strings.TrimSpace(cells.Eq(3).Text())  // Date
+		col4 := strings.TrimSpace(cells.Eq(6).Text())  // Type
+		col5 := strings.TrimSpace(cells.Eq(9).Text())  // Amount
+		col6 := strings.TrimSpace(cells.Eq(12).Text()) // Agent
 
-		if col6 == "" {
-			return // saltar si columna clave está vacía
+		if col1 == "" && col2 == "" {
+			return
 		}
 
-		rec := model.Record{ // crea el registro
+		rec := model.Record{
 			ClientID: col1,
 			Client:   col2,
 			Date:     col3,
@@ -100,42 +88,40 @@ func RunScrape(ctx context.Context, db *gorm.DB, opts ScrapeOptions) error {
 			Agent:    col6,
 		}
 
-		// Antes de enviar al canal, imprime los valores
-		log.Printf("Fila: ClientID=%s, Client=%s, Date=%s, Type=%s, Amount=%s, Agent=%s",
-			col1, col2, col3, col4, col5, col6)
+		log.Printf("✅ Registro: %+v", rec)
 
-		// enviar registro al canal
 		select {
-		case recordsCh <- rec: // envía el registro al canal
+		case recordsCh <- rec:
 		case <-ctx.Done():
-			log.Println("context cancelled while sending record")
+			return
 		}
 	})
 
-	// manejar errores de request
+	// ---------------------------
+	// ✅ 5. Manejo de errores HTTP
+	// ---------------------------
 	c.OnError(func(r *colly.Response, err error) {
-		log.Printf("Request URL: %s failed: %v\n", r.Request.URL, err)
+		log.Printf("❌ Error HTTP %s: %v", r.Request.URL, err)
 	})
 
-	// visitar URL
+	// ---------------------------
+	// ✅ 6. Visitar reporte
+	// ---------------------------
+	log.Println("🌍 Visitando URL:", opts.URL)
+
 	if err := c.Visit(opts.URL); err != nil {
 		close(recordsCh)
 		return err
 	}
 
-	// esperar que no haya más jobs (colly trabaja asincrónicamente)
-	c.Wait() // colly.Wait espera a collectors (necesita EnableAsync si lo usamos)
-	// Para usar Wait debemos haber activado Async
-	// Alternativa simple: small sleep para asegurar callbacks (no ideal) -> mejor activar Async
-	// Ajustamos para usar Async:
-	return finalizeAndClose(recordsCh, errCh)
-}
+	c.Wait()
 
-func finalizeAndClose(recordsCh chan model.Record, errCh chan error) error {
-	// cerramos el canal y esperamos un tiempo prudente para que terminen workers
+	// ---------------------------
+	// ✅ 7. Cerrar workers
+	// ---------------------------
 	close(recordsCh)
-	// esperar breve tiempo para que los workers procesen
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
+
 	select {
 	case e := <-errCh:
 		return e
