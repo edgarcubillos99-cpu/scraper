@@ -7,56 +7,40 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-co-op/gocron"
 	"github.com/joho/godotenv"
 
 	"github.com/eddgaroso/go-colly-mysql/internal/db"
 	"github.com/eddgaroso/go-colly-mysql/internal/scraper"
 )
 
-func main() {
-
-	// ------------------------------------------------------
-	// Cargar variables de entorno (.env es opcional)
-	// ------------------------------------------------------
-	_ = godotenv.Load()
-
-	// ------------------------------------------------------
-	// Conectar a la base de datos
-	// ------------------------------------------------------
+func runScraper() {
+	// Conectar DB
 	database, err := db.Connect()
 	if err != nil {
-		log.Fatalf("❌ Error conectando a DB: %v", err)
+		log.Printf("❌ Error conectando DB: %v", err)
+		return
 	}
 
-	log.Println("✅ Conectado a la base de datos.")
-
-	// ------------------------------------------------------
-	// Crear collector + jar para cookies
-	// ------------------------------------------------------
+	// Collector + cookies
 	c, jar, err := scraper.InitCollector()
 	if err != nil {
-		log.Fatalf("❌ Error iniciando Collector: %v", err)
+		log.Printf("❌ Error Collector: %v", err)
+		return
 	}
 
-	// ------------------------------------------------------
-	// Hacer login
-	// ------------------------------------------------------
+	// Login
 	loginInfo := scraper.LoginInfo{
 		Username: os.Getenv("BILLING_USER"),
 		Password: os.Getenv("BILLING_PASS"),
 	}
 
-	log.Println("🔐 Realizando login...")
-
 	if err := scraper.Login(c, jar, loginInfo); err != nil {
-		log.Fatalf("❌ Error en login: %v", err)
+		log.Printf("❌ Error login: %v", err)
+		return
 	}
 
-	log.Println("✅ Login exitoso. Cookies activas.")
-
-	// ------------------------------------------------------
-	// Construir URL con timestamps
-	// ------------------------------------------------------
+	// Calcular fechas
 	loc, _ := time.LoadLocation(os.Getenv("TIMEZONE"))
 
 	startOfDay := time.Now().In(loc).Truncate(24 * time.Hour)
@@ -65,9 +49,6 @@ func main() {
 	urlTemplate := os.Getenv("TARGET_URL")
 	targetURL := fmt.Sprintf(urlTemplate, startOfDay.Unix(), endOfDay.Unix())
 
-	// ------------------------------------------------------
-	// Configurar opciones del scraper
-	// ------------------------------------------------------
 	opts := scraper.ScrapeOptions{
 		URL:           targetURL,
 		TableSelector: os.Getenv("TABLE_SELECTOR"),
@@ -75,17 +56,39 @@ func main() {
 		StartAtHeader: false,
 	}
 
-	// ------------------------------------------------------
-	// Ejecutar scraping
-	// ------------------------------------------------------
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 
-	log.Println("🔎 Iniciando scraping...")
-
+	// Ejecutar scraping
+	log.Println("🚀 Ejecutando scraping programado...")
 	if err := scraper.RunScrape(ctx, database, c, opts); err != nil {
-		log.Fatalf("❌ Error durante scraping: %v", err)
+		log.Printf("❌ Error scraping: %v", err)
+	}
+}
+
+func main() {
+
+	godotenv.Load()
+
+	// Leer hora desde variables de entorno
+	hour := os.Getenv("SCRAPER_HOUR")
+	min := os.Getenv("SCRAPER_MINUTE")
+	tz := os.Getenv("TIMEZONE")
+
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		log.Fatalf("❌ TIMEZONE inválido: %v", err)
 	}
 
-	log.Println("✅ Scraping finalizado sin errores.")
+	s := gocron.NewScheduler(loc)
+
+	// Programar tarea diaria
+	_, err = s.Every(1).Day().At(fmt.Sprintf("%s:%s", hour, min)).Do(runScraper)
+	if err != nil {
+		log.Fatalf("❌ Error programando tarea: %v", err)
+	}
+
+	log.Printf("✅ Scraper programado cada día a las %s:%s (%s)\n", hour, min, tz)
+
+	s.StartBlocking() // Mantiene el container vivo
 }

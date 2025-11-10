@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,11 +59,28 @@ func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts Scrape
 		}
 
 		// Ajustar según la tabla real
-		col1 := strings.TrimSpace(cells.Eq(1).Text())  // ClientID
-		col2 := strings.TrimSpace(cells.Eq(2).Text())  // Client
-		col3 := strings.TrimSpace(cells.Eq(3).Text())  // Date
-		col4 := strings.TrimSpace(cells.Eq(6).Text())  // Type
-		col5 := strings.TrimSpace(cells.Eq(9).Text())  // Amount
+		col1 := strings.TrimSpace(cells.Eq(1).Text()) // ClientID
+		col2 := strings.TrimSpace(cells.Eq(2).Text()) // Client
+		col3 := strings.TrimSpace(cells.Eq(3).Text()) // Date
+		// Parsear fecha de formato "3:04:05PM Jan/02/2006" a time.Time
+		parsedDate, err := time.Parse("3:04:05PM Jan/02/2006", col3)
+		if err != nil {
+			log.Printf("❌ Error parseando fecha '%s': %v", col3, err)
+		}
+		col4 := strings.TrimSpace(cells.Eq(6).Text()) // Type
+		col5 := strings.TrimSpace(cells.Eq(9).Text()) // Amount
+		// Eliminar símbolos no numéricos ($, comas, espacios)
+		cleanAmount := strings.ReplaceAll(col5, "$", "")
+		cleanAmount = strings.ReplaceAll(cleanAmount, ",", "")
+		cleanAmount = strings.TrimSpace(cleanAmount)
+
+		// Convertir a número
+		amountVal, err := strconv.ParseFloat(cleanAmount, 64)
+		if err != nil {
+			log.Printf("❌ Error convirtiendo amount '%s': %v", col5, err)
+			amountVal = 0
+		}
+
 		col6 := strings.TrimSpace(cells.Eq(12).Text()) // Agent
 
 		// Omitir filas sin datos en columna clave
@@ -73,9 +91,9 @@ func RunScrape(ctx context.Context, db *gorm.DB, c *colly.Collector, opts Scrape
 		rec := model.Record{ // Ajustar según modelo
 			ClientID: col1,
 			Client:   col2,
-			Date:     col3,
+			Date:     parsedDate,
 			Type:     col4,
-			Amount:   col5,
+			Amount:   amountVal,
 			Agent:    col6,
 		}
 

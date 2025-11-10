@@ -35,7 +35,9 @@ El scraper ingresa al portal **UberSmith/Billing**, obtiene el reporte diario, p
 
 # 📌 Descripción General
 
-Este proyecto automatiza:
+Este proyecto implementa un web scraper backend desarrollado en Golang, utilizando la librería Colly para realizar scraping sin navegador (HTTP puro) y GORM para gestionar la persistencia en una base de datos MySQL.
+
+El sistema está completamente dockerizado, lo que permite su ejecución en cualquier entorno sin necesidad de instalaciones adicionales.
 
 1. Login en **billing.osnetpr.com**
 2. Obtención de tokens **CSRF dinámicos**
@@ -70,6 +72,8 @@ go-colly-mysql/
 │ ├── 2025..._init_schema.sql
 │ ├── 2025..._alter_records_columns.sql
 │ └── 2025..._add_indexes.sql
+| ├── 2025..._change_date_to_datetime
+│ └── 2025..._change_amount_to_decimal
 ├── docker-compose.yml
 ├── dockerfile
 ├── entrypoint.sh
@@ -81,7 +85,7 @@ go-colly-mysql/
 
 # 🏗 Arquitectura del Sistema
 
-```mermaid
+´´´mermaid
 flowchart TD
 
 A[Arranque Docker] --> B[MySQL inicia y pasa healthcheck]
@@ -103,12 +107,17 @@ L --> M[Finaliza ejecución]
 
 # ⚙️ Configuración del Entorno
 
-.env
+1) .env
+ Credenciales de la pagina de login
 BILLING_USER=usuario_demo
 BILLING_PASS=pass_demo
-TIMEZONE=America/Puerto_Rico
 
-docker-compose
+ Horario de ejecución del scraper
+TIMEZONE=America/Puerto_Rico
+SCRAPER_HOUR=HORA_EJECUCION_0-23
+SCRAPER_MINUTE=MINUTO_EJECUCION_0-59
+
+2) docker-compose
 DB_HOST=mysql
 DB_PORT=3306
 DB_USER=app
@@ -192,16 +201,19 @@ type Record struct {
 Migraciones en /migrations:
 
 ✅ init_schema.sql
-
 Crea tabla records.
 
 ✅ alter_records_columns.sql
-
 Ajusta tamaños de columnas.
 
 ✅ add_indexes.sql
-
 Añade índices para acelerar consultas.
+
+✅ change_date_to_datetime
+Cambia el tipo de dato a date
+
+✅ change_amount_to_decimal
+Cambia el tipo de dato decimal
 
 Se ejecutan automáticamente por: entrypoint.sh → goose up
 
@@ -209,7 +221,7 @@ Se ejecutan automáticamente por: entrypoint.sh → goose up
 
 # 🧪 Pruebas y Verificación
 ✅ Entrar al contenedor MySQL
-docker exec -it mysql mysql -uapp -papppass appdb
+docker exec -it scraper-mysql-1 mysql -uapp -papppass appdb
 
 ✅ Ver datos insertados
 SELECT * FROM records;

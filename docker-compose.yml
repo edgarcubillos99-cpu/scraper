@@ -1,4 +1,3 @@
-version: "3.9"
 
 services:
   mysql: # Servicio de base de datos MySQL
@@ -28,7 +27,6 @@ services:
       - DB_USER=app
       - DB_PASSWORD=apppass
       - DB_NAME=appdb
-      - TIMEZONE=America/Puerto_Rico
       - TARGET_URL=https://billing.osnetpr.com/admin/reports/report_billings_detail.php?type=&begin=%d&end=%d&type=
       - TABLE_SELECTOR=table.table-body-modern
       - ROW_SELECTOR=tr
